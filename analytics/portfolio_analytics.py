@@ -9,10 +9,9 @@ from typing import Dict, List, Optional, Tuple
 import logging
 from datetime import datetime, timedelta
 import warnings
+import os
 
 from config import COMPLIANCE_LIMITS, REPORTING_CONFIG
-from database.queries import TradingQueries
-from database.connections import db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +24,58 @@ class PortfolioAnalytics:
     def __init__(self):
         self.compliance_limits = COMPLIANCE_LIMITS
         self.reporting_config = REPORTING_CONFIG
+        self.sample_data_path = 'sample_data'
     
-    def analyze_portfolio_positions(self, portfolio_id: str, as_of_date: str = None) -> Dict:
+    def load_portfolio_data(self, portfolio_id: str = 'PORTFOLIO_001') -> pd.DataFrame:
+        """Load portfolio data from sample datasets."""
+        try:
+            # Load portfolio positions
+            portfolio_file = os.path.join(self.sample_data_path, 'portfolio_positions.csv')
+            if os.path.exists(portfolio_file):
+                portfolio_data = pd.read_csv(portfolio_file)
+                # Filter by portfolio if needed
+                if portfolio_id:
+                    portfolio_data = portfolio_data[portfolio_data['portfolio_id'] == portfolio_id]
+                return portfolio_data
+            else:
+                logger.warning("Portfolio data file not found. Run sample_data.py first.")
+                return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Error loading portfolio data: {e}")
+            return pd.DataFrame()
+    
+    def load_trade_history(self, portfolio_id: str = 'PORTFOLIO_001', 
+                          start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """Load trade history from sample datasets."""
+        try:
+            trade_file = os.path.join(self.sample_data_path, 'trade_history.csv')
+            if os.path.exists(trade_file):
+                trades_data = pd.read_csv(trade_file)
+                
+                # Filter by portfolio
+                if portfolio_id:
+                    trades_data = trades_data[trades_data['portfolio_id'] == portfolio_id]
+                
+                # Filter by date range if provided
+                if start_date and end_date:
+                    trades_data['trade_date'] = pd.to_datetime(trades_data['trade_date'])
+                    trades_data = trades_data[
+                        (trades_data['trade_date'] >= start_date) & 
+                        (trades_data['trade_date'] <= end_date)
+                    ]
+                
+                return trades_data
+            else:
+                logger.warning("Trade history file not found. Run sample_data.py first.")
+                return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Error loading trade history: {e}")
+            return pd.DataFrame()
+    
+    def analyze_portfolio_positions(self, portfolio_id: str = 'PORTFOLIO_001', 
+                                  as_of_date: str = None) -> Dict:
         """
-        Comprehensive portfolio position analysis.
+        Comprehensive portfolio position analysis using real sample data.
         
         Args:
             portfolio_id: Portfolio identifier
@@ -38,57 +85,57 @@ class PortfolioAnalytics:
             Dictionary containing position analysis results
         """
         try:
-            # Get portfolio positions
-            query = TradingQueries.get_portfolio_positions(portfolio_id, as_of_date)
-            positions_df = db_manager.execute_query('trading_system', query)
+            # Load portfolio data
+            portfolio_data = self.load_portfolio_data(portfolio_id)
             
-            if positions_df.empty:
-                logger.warning(f"No positions found for portfolio {portfolio_id}")
+            if portfolio_data.empty:
+                logger.warning(f"No portfolio data found for {portfolio_id}")
                 return {}
             
             # Calculate key metrics
             analysis = {
                 'portfolio_id': portfolio_id,
                 'as_of_date': as_of_date or datetime.now().strftime('%Y-%m-%d'),
-                'total_positions': len(positions_df),
-                'total_market_value': positions_df['market_value'].sum(),
-                'total_cost_basis': positions_df['cost_basis'].sum(),
-                'total_unrealized_pnl': positions_df['unrealized_pnl'].sum(),
-                'total_realized_pnl': positions_df['realized_pnl'].sum(),
-                'position_analysis': self._analyze_position_details(positions_df),
-                'exposure_analysis': self._analyze_exposures(positions_df),
-                'concentration_analysis': self._analyze_concentration(positions_df),
-                'compliance_flags': self._check_compliance_flags(positions_df)
+                'total_positions': len(portfolio_data),
+                'total_market_value': portfolio_data['market_value'].sum(),
+                'total_cost_basis': portfolio_data['cost_basis'].sum(),
+                'total_unrealized_pnl': portfolio_data['unrealized_pnl'].sum(),
+                'total_realized_pnl': portfolio_data['realized_pnl'].sum(),
+                'position_analysis': self._analyze_position_details(portfolio_data),
+                'exposure_analysis': self._analyze_exposures(portfolio_data),
+                'concentration_analysis': self._analyze_concentration(portfolio_data),
+                'compliance_flags': self._check_compliance_flags(portfolio_data),
+                'positions': portfolio_data.to_dict('records')
             }
             
-            logger.info(f"Portfolio analysis completed for {portfolio_id}: {len(positions_df)} positions")
+            logger.info(f"Portfolio analysis completed for {portfolio_id}: {len(portfolio_data)} positions")
             return analysis
             
         except Exception as e:
             logger.error(f"Portfolio analysis failed for {portfolio_id}: {e}")
             raise
     
-    def _analyze_position_details(self, positions_df: pd.DataFrame) -> Dict:
+    def _analyze_position_details(self, portfolio_data: pd.DataFrame) -> Dict:
         """Analyze individual position details and characteristics."""
         analysis = {
-            'largest_positions': positions_df.nlargest(10, 'market_value')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
-            'best_performers': positions_df.nlargest(10, 'unrealized_pnl')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
-            'worst_performers': positions_df.nsmallest(10, 'unrealized_pnl')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
+            'largest_positions': portfolio_data.nlargest(10, 'market_value')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
+            'best_performers': portfolio_data.nlargest(10, 'unrealized_pnl')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
+            'worst_performers': portfolio_data.nsmallest(10, 'unrealized_pnl')[['symbol', 'market_value', 'unrealized_pnl']].to_dict('records'),
             'position_size_distribution': {
-                'large': len(positions_df[positions_df['market_value'] > 1000000]),
-                'medium': len(positions_df[(positions_df['market_value'] > 100000) & (positions_df['market_value'] <= 1000000)]),
-                'small': len(positions_df[positions_df['market_value'] <= 100000])
+                'large': len(portfolio_data[portfolio_data['market_value'] > 1000000]),
+                'medium': len(portfolio_data[(portfolio_data['market_value'] > 100000) & (portfolio_data['market_value'] <= 1000000)]),
+                'small': len(portfolio_data[portfolio_data['market_value'] <= 100000])
             }
         }
         return analysis
     
-    def _analyze_exposures(self, positions_df: pd.DataFrame) -> Dict:
+    def _analyze_exposures(self, portfolio_data: pd.DataFrame) -> Dict:
         """Analyze portfolio exposures by sector, region, and currency."""
         exposures = {}
         
         # Sector exposure
-        if 'sector' in positions_df.columns and positions_df['sector'].notna().any():
-            sector_exposure = positions_df.groupby('sector').agg({
+        if 'sector' in portfolio_data.columns and portfolio_data['sector'].notna().any():
+            sector_exposure = portfolio_data.groupby('sector').agg({
                 'market_value': 'sum',
                 'unrealized_pnl': 'sum'
             }).reset_index()
@@ -96,8 +143,8 @@ class PortfolioAnalytics:
             exposures['sector'] = sector_exposure.to_dict('records')
         
         # Region exposure
-        if 'region' in positions_df.columns and positions_df['region'].notna().any():
-            region_exposure = positions_df.groupby('region').agg({
+        if 'region' in portfolio_data.columns and portfolio_data['region'].notna().any():
+            region_exposure = portfolio_data.groupby('region').agg({
                 'market_value': 'sum',
                 'unrealized_pnl': 'sum'
             }).reset_index()
@@ -105,8 +152,8 @@ class PortfolioAnalytics:
             exposures['region'] = region_exposure.to_dict('records')
         
         # Currency exposure
-        if 'currency' in positions_df.columns:
-            currency_exposure = positions_df.groupby('currency').agg({
+        if 'currency' in portfolio_data.columns:
+            currency_exposure = portfolio_data.groupby('currency').agg({
                 'market_value': 'sum'
             }).reset_index()
             currency_exposure['weight'] = currency_exposure['market_value'] / currency_exposure['market_value'].sum()
@@ -114,19 +161,19 @@ class PortfolioAnalytics:
         
         return exposures
     
-    def _analyze_concentration(self, positions_df: pd.DataFrame) -> Dict:
+    def _analyze_concentration(self, portfolio_data: pd.DataFrame) -> Dict:
         """Analyze portfolio concentration and diversification metrics."""
-        total_value = positions_df['market_value'].sum()
+        total_value = portfolio_data['market_value'].sum()
         
         # Herfindahl-Hirschman Index (HHI) for concentration
-        weights = positions_df['market_value'] / total_value
+        weights = portfolio_data['market_value'] / total_value
         hhi = (weights ** 2).sum()
         
         # Top 5 positions concentration
-        top_5_concentration = positions_df.nlargest(5, 'market_value')['market_value'].sum() / total_value
+        top_5_concentration = portfolio_data.nlargest(5, 'market_value')['market_value'].sum() / total_value
         
         # Top 10 positions concentration
-        top_10_concentration = positions_df.nlargest(10, 'market_value')['market_value'].sum() / total_value
+        top_10_concentration = portfolio_data.nlargest(10, 'market_value')['market_value'].sum() / total_value
         
         analysis = {
             'herfindahl_index': hhi,
@@ -156,12 +203,12 @@ class PortfolioAnalytics:
         score = max(0, 100 * (1 - hhi))
         return round(score, 2)
     
-    def _check_compliance_flags(self, positions_df: pd.DataFrame) -> List[Dict]:
+    def _check_compliance_flags(self, portfolio_data: pd.DataFrame) -> List[Dict]:
         """Check for compliance flags and violations."""
         flags = []
         
         # Check for large positions
-        large_positions = positions_df[positions_df['market_value'] > self.compliance_limits['max_position_size']]
+        large_positions = portfolio_data[portfolio_data['market_value'] > self.compliance_limits['max_position_size']]
         for _, pos in large_positions.iterrows():
             flags.append({
                 'type': 'LARGE_POSITION',
@@ -173,10 +220,10 @@ class PortfolioAnalytics:
             })
         
         # Check sector concentration
-        if 'sector' in positions_df.columns:
-            sector_exposure = positions_df.groupby('sector')['market_value'].sum()
+        if 'sector' in portfolio_data.columns:
+            sector_exposure = portfolio_data.groupby('sector')['market_value'].sum()
             for sector, exposure in sector_exposure.items():
-                weight = exposure / positions_df['market_value'].sum()
+                weight = exposure / portfolio_data['market_value'].sum()
                 if weight > self.compliance_limits['max_sector_exposure']:
                     flags.append({
                         'type': 'SECTOR_CONCENTRATION',
@@ -189,22 +236,29 @@ class PortfolioAnalytics:
         
         return flags
     
-    def get_sector_exposure_analysis(self, portfolio_id: str) -> pd.DataFrame:
+    def get_sector_exposure_analysis(self, portfolio_id: str = 'PORTFOLIO_001') -> pd.DataFrame:
         """Get detailed sector exposure analysis."""
-        query = TradingQueries.get_sector_exposure(portfolio_id)
-        return db_manager.execute_query('trading_system', query)
+        portfolio_data = self.load_portfolio_data(portfolio_id)
+        if portfolio_data.empty:
+            return pd.DataFrame()
+        
+        sector_exposure = portfolio_data.groupby('sector').agg({
+            'market_value': 'sum',
+            'unrealized_pnl': 'sum',
+            'symbol': 'count'
+        }).reset_index()
+        sector_exposure['weight'] = sector_exposure['market_value'] / sector_exposure['market_value'].sum()
+        sector_exposure['position_count'] = sector_exposure['symbol']
+        sector_exposure = sector_exposure.drop('symbol', axis=1)
+        
+        return sector_exposure
     
-    def get_client_exposure_summary(self, client_id: str) -> pd.DataFrame:
-        """Get client exposure summary across all portfolios."""
-        query = TradingQueries.get_client_exposure(client_id)
-        return db_manager.execute_query('trading_system', query)
-    
-    def calculate_portfolio_metrics(self, portfolio_id: str, start_date: str, end_date: str) -> Dict:
+    def calculate_portfolio_metrics(self, portfolio_id: str = 'PORTFOLIO_001', 
+                                  start_date: str = None, end_date: str = None) -> Dict:
         """Calculate comprehensive portfolio performance metrics."""
         try:
-            # Get trade history
-            query = TradingQueries.get_trade_history(portfolio_id, start_date, end_date)
-            trades_df = db_manager.execute_query('trading_system', query)
+            # Load trade history
+            trades_df = self.load_trade_history(portfolio_id, start_date, end_date)
             
             if trades_df.empty:
                 return {'error': 'No trade data available for the specified period'}
@@ -218,7 +272,9 @@ class PortfolioAnalytics:
                 'total_commission': trades_df['commission'].sum(),
                 'average_trade_size': trades_df['notional_value'].mean(),
                 'trading_activity_by_day': trades_df.groupby('trade_date').size().to_dict(),
-                'execution_venue_breakdown': trades_df['execution_venue'].value_counts().to_dict()
+                'execution_venue_breakdown': trades_df['execution_venue'].value_counts().to_dict(),
+                'strategy_breakdown': trades_df['strategy'].value_counts().to_dict(),
+                'trader_breakdown': trades_df['trader_id'].value_counts().to_dict()
             }
             
             return metrics
@@ -226,3 +282,76 @@ class PortfolioAnalytics:
         except Exception as e:
             logger.error(f"Portfolio metrics calculation failed: {e}")
             raise
+    
+    def generate_portfolio_summary_report(self, portfolio_id: str = 'PORTFOLIO_001') -> Dict:
+        """Generate comprehensive portfolio summary report."""
+        try:
+            # Get portfolio analysis
+            portfolio_analysis = self.analyze_portfolio_positions(portfolio_id)
+            
+            # Get trading metrics (last 30 days)
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            trading_metrics = self.calculate_portfolio_metrics(portfolio_id, start_date, end_date)
+            
+            # Compile report
+            report = {
+                'portfolio_id': portfolio_id,
+                'report_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'portfolio_summary': {
+                    'total_positions': portfolio_analysis.get('total_positions', 0),
+                    'total_market_value': portfolio_analysis.get('total_market_value', 0),
+                    'total_unrealized_pnl': portfolio_analysis.get('total_unrealized_pnl', 0),
+                    'total_realized_pnl': portfolio_analysis.get('total_realized_pnl', 0)
+                },
+                'concentration_analysis': portfolio_analysis.get('concentration_analysis', {}),
+                'exposure_analysis': portfolio_analysis.get('exposure_analysis', {}),
+                'compliance_status': {
+                    'flags_count': len(portfolio_analysis.get('compliance_flags', [])),
+                    'flags': portfolio_analysis.get('compliance_flags', [])
+                },
+                'trading_activity': trading_metrics,
+                'key_insights': self._generate_key_insights(portfolio_analysis, trading_metrics)
+            }
+            
+            return report
+            
+        except Exception as e:
+            logger.error(f"Portfolio summary report generation failed: {e}")
+            raise
+    
+    def _generate_key_insights(self, portfolio_analysis: Dict, trading_metrics: Dict) -> List[str]:
+        """Generate key insights from portfolio and trading analysis."""
+        insights = []
+        
+        # Portfolio insights
+        total_value = portfolio_analysis.get('total_market_value', 0)
+        total_pnl = portfolio_analysis.get('total_unrealized_pnl', 0)
+        
+        if total_value > 0:
+            pnl_percentage = (total_pnl / total_value) * 100
+            if pnl_percentage > 5:
+                insights.append(f"Portfolio showing strong performance with {pnl_percentage:.1f}% unrealized P&L")
+            elif pnl_percentage < -5:
+                insights.append(f"Portfolio underperforming with {pnl_percentage:.1f}% unrealized P&L")
+        
+        # Concentration insights
+        concentration = portfolio_analysis.get('concentration_analysis', {})
+        hhi = concentration.get('herfindahl_index', 0)
+        if hhi > 0.25:
+            insights.append("Portfolio shows high concentration - consider diversification strategies")
+        elif hhi < 0.15:
+            insights.append("Portfolio is well diversified - good risk management")
+        
+        # Trading insights
+        if trading_metrics.get('total_trades', 0) > 50:
+            insights.append("High trading activity detected - review trading costs and strategy")
+        
+        # Compliance insights
+        flags_count = len(portfolio_analysis.get('compliance_flags', []))
+        if flags_count > 0:
+            insights.append(f"{flags_count} compliance flags detected - immediate attention required")
+        else:
+            insights.append("All compliance checks passed - portfolio within limits")
+        
+        return insights

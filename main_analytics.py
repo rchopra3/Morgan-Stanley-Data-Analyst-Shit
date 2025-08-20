@@ -28,58 +28,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def create_sample_data():
-    """Create sample data for demonstration purposes."""
-    logger.info("Creating sample data for analytics demonstration...")
+def check_sample_data():
+    """Check if sample data exists, generate if not."""
+    sample_data_dir = 'sample_data'
+    portfolio_file = os.path.join(sample_data_dir, 'portfolio_positions.csv')
     
-    # Sample portfolio positions
-    sample_positions = [
-        {'symbol': 'AAPL', 'quantity': 1000, 'cost_basis': 150.0, 'market_value': 175000, 
-         'unrealized_pnl': 25000, 'realized_pnl': 5000, 'sector': 'Technology', 'region': 'US', 'currency': 'USD'},
-        {'symbol': 'MSFT', 'quantity': 800, 'cost_basis': 280.0, 'market_value': 240000, 
-         'unrealized_pnl': 16000, 'realized_pnl': 8000, 'sector': 'Technology', 'region': 'US', 'currency': 'USD'},
-        {'symbol': 'JPM', 'quantity': 1200, 'cost_basis': 140.0, 'market_value': 168000, 
-         'unrealized_pnl': 12000, 'realized_pnl': 3000, 'sector': 'Financial', 'region': 'US', 'currency': 'USD'},
-        {'symbol': 'JNJ', 'quantity': 600, 'cost_basis': 160.0, 'market_value': 96000, 
-         'unrealized_pnl': 6000, 'realized_pnl': 2000, 'sector': 'Healthcare', 'region': 'US', 'currency': 'USD'},
-        {'symbol': 'XOM', 'quantity': 900, 'cost_basis': 80.0, 'market_value': 81000, 
-         'unrealized_pnl': 9000, 'realized_pnl': 1000, 'sector': 'Energy', 'region': 'US', 'currency': 'USD'}
-    ]
+    if not os.path.exists(portfolio_file):
+        logger.info("Sample data not found. Generating datasets...")
+        try:
+            from sample_data import create_sample_datasets
+            create_sample_datasets()
+            logger.info("✅ Sample datasets generated successfully!")
+        except Exception as e:
+            logger.error(f"Failed to generate sample data: {e}")
+            return False
+    else:
+        logger.info("✅ Sample data found!")
     
-    # Sample performance attribution data
-    sample_attribution = [
-        {'factor_name': 'Stock Selection', 'factor_return': 0.08, 'factor_weight': 0.6, 'contribution': 0.048},
-        {'factor_name': 'Sector Allocation', 'factor_return': 0.05, 'factor_weight': 0.3, 'contribution': 0.015},
-        {'factor_name': 'Market Timing', 'factor_return': 0.02, 'factor_weight': 0.1, 'contribution': 0.002}
-    ]
-    
-    return sample_positions, sample_attribution
+    return True
 
 def run_portfolio_analysis():
-    """Run comprehensive portfolio analysis."""
+    """Run comprehensive portfolio analysis with real data."""
     logger.info("=" * 60)
     logger.info("PORTFOLIO ANALYSIS")
     logger.info("=" * 60)
     
     portfolio_analytics = PortfolioAnalytics()
     
-    # Create sample portfolio data
-    sample_positions, _ = create_sample_data()
-    
-    # Simulate portfolio analysis (in practice, this would use real database data)
-    portfolio_data = {
-        'portfolio_id': 'DEMO_PORTFOLIO_001',
-        'as_of_date': datetime.now().strftime('%Y-%m-%d'),
-        'total_positions': len(sample_positions),
-        'total_market_value': sum(pos['market_value'] for pos in sample_positions),
-        'total_cost_basis': sum(pos['cost_basis'] * pos['quantity'] for pos in sample_positions),
-        'total_unrealized_pnl': sum(pos['unrealized_pnl'] for pos in sample_positions),
-        'total_realized_pnl': sum(pos['realized_pnl'] for pos in sample_positions),
-        'positions': sample_positions
-    }
-    
     # Analyze portfolio
-    analysis = portfolio_analytics.analyze_portfolio_positions('DEMO_PORTFOLIO_001')
+    analysis = portfolio_analytics.analyze_portfolio_positions('PORTFOLIO_001')
+    
+    if not analysis:
+        logger.error("Portfolio analysis failed - no data available")
+        return {}
     
     # Display results
     logger.info(f"Portfolio Analysis Results:")
@@ -104,10 +85,92 @@ def run_portfolio_analysis():
     else:
         logger.info("  Compliance Status: No issues detected")
     
+    # Generate portfolio summary report
+    summary_report = portfolio_analytics.generate_portfolio_summary_report('PORTFOLIO_001')
+    if summary_report:
+        logger.info(f"  Key Insights:")
+        for insight in summary_report.get('key_insights', [])[:3]:
+            logger.info(f"    • {insight}")
+    
     return analysis
 
+def run_trading_analysis():
+    """Run trading activity analysis."""
+    logger.info("=" * 60)
+    logger.info("TRADING ACTIVITY ANALYSIS")
+    logger.info("=" * 60)
+    
+    portfolio_analytics = PortfolioAnalytics()
+    
+    # Get trading metrics for last 30 days
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    trading_metrics = portfolio_analytics.calculate_portfolio_metrics('PORTFOLIO_001', start_date, end_date)
+    
+    if 'error' in trading_metrics:
+        logger.error(f"Trading analysis failed: {trading_metrics['error']}")
+        return {}
+    
+    logger.info(f"Trading Activity (Last 30 Days):")
+    logger.info(f"  Total Trades: {trading_metrics.get('total_trades', 0)}")
+    logger.info(f"  Buy Trades: {trading_metrics.get('buy_trades', 0)}")
+    logger.info(f"  Sell Trades: {trading_metrics.get('sell_trades', 0)}")
+    logger.info(f"  Total Notional: ${trading_metrics.get('total_notional', 0):,.0f}")
+    logger.info(f"  Total Commission: ${trading_metrics.get('total_commission', 0):,.2f}")
+    logger.info(f"  Average Trade Size: ${trading_metrics.get('average_trade_size', 0):,.0f}")
+    
+    # Strategy breakdown
+    strategy_breakdown = trading_metrics.get('strategy_breakdown', {})
+    if strategy_breakdown:
+        logger.info(f"  Strategy Breakdown:")
+        for strategy, count in strategy_breakdown.items():
+            logger.info(f"    {strategy}: {count} trades")
+    
+    # Execution venue breakdown
+    venue_breakdown = trading_metrics.get('execution_venue_breakdown', {})
+    if venue_breakdown:
+        logger.info(f"  Execution Venues:")
+        for venue, count in venue_breakdown.items():
+            logger.info(f"    {venue}: {count} trades")
+    
+    return trading_metrics
+
+def run_sector_analysis():
+    """Run sector exposure analysis."""
+    logger.info("=" * 60)
+    logger.info("SECTOR EXPOSURE ANALYSIS")
+    logger.info("=" * 60)
+    
+    portfolio_analytics = PortfolioAnalytics()
+    
+    # Get sector exposure
+    sector_exposure = portfolio_analytics.get_sector_exposure_analysis('PORTFOLIO_001')
+    
+    if sector_exposure.empty:
+        logger.error("Sector analysis failed - no data available")
+        return {}
+    
+    logger.info(f"Sector Exposure Analysis:")
+    logger.info(f"  Total Sectors: {len(sector_exposure)}")
+    
+    for _, sector in sector_exposure.iterrows():
+        sector_name = sector['sector']
+        weight = sector['weight']
+        market_value = sector['market_value']
+        pnl = sector['unrealized_pnl']
+        position_count = sector['position_count']
+        
+        logger.info(f"  {sector_name}:")
+        logger.info(f"    Weight: {weight:.1%}")
+        logger.info(f"    Market Value: ${market_value:,.0f}")
+        logger.info(f"    Unrealized P&L: ${pnl:,.0f}")
+        logger.info(f"    Positions: {position_count}")
+    
+    return sector_exposure.to_dict('records')
+
 def run_risk_analysis():
-    """Run comprehensive risk analysis."""
+    """Run comprehensive risk analysis with real data."""
     logger.info("=" * 60)
     logger.info("RISK ANALYSIS")
     logger.info("=" * 60)
@@ -115,7 +178,7 @@ def run_risk_analysis():
     risk_analytics = RiskAnalytics()
     
     # Calculate VaR using different methods
-    portfolio_id = 'DEMO_PORTFOLIO_001'
+    portfolio_id = 'PORTFOLIO_001'
     
     # Parametric VaR
     var_parametric = risk_analytics.calculate_portfolio_var(portfolio_id, method='parametric')
@@ -157,7 +220,7 @@ def run_risk_analysis():
     }
 
 def run_compliance_analysis():
-    """Run comprehensive compliance analysis."""
+    """Run comprehensive compliance analysis with real data."""
     logger.info("=" * 60)
     logger.info("COMPLIANCE ANALYSIS")
     logger.info("=" * 60)
@@ -165,7 +228,7 @@ def run_compliance_analysis():
     compliance_analytics = ComplianceAnalytics()
     
     # Monitor position limits
-    position_status = compliance_analytics.monitor_position_limits('DEMO_PORTFOLIO_001')
+    position_status = compliance_analytics.monitor_position_limits('PORTFOLIO_001')
     logger.info(f"Position Limit Monitoring:")
     logger.info(f"  Status: {position_status.get('status', 'N/A')}")
     logger.info(f"  Compliance Score: {position_status.get('compliance_score', 0):.1f}")
@@ -189,7 +252,7 @@ def run_compliance_analysis():
     logger.info(f"  High Risk: {wash_trade_status.get('high_risk_count', 0)}")
     
     # Calculate overall compliance metrics
-    compliance_metrics = compliance_analytics.calculate_compliance_metrics('DEMO_PORTFOLIO_001')
+    compliance_metrics = compliance_analytics.calculate_compliance_metrics('PORTFOLIO_001')
     logger.info(f"Overall Compliance Metrics:")
     logger.info(f"  Overall Score: {compliance_metrics.get('overall_compliance_score', 0):.1f}")
     logger.info(f"  Compliance Level: {compliance_metrics.get('compliance_level', 'N/A')}")
@@ -203,7 +266,7 @@ def run_compliance_analysis():
     }
 
 def run_performance_analysis():
-    """Run comprehensive performance analysis."""
+    """Run comprehensive performance analysis with real data."""
     logger.info("=" * 60)
     logger.info("PERFORMANCE ANALYSIS")
     logger.info("=" * 60)
@@ -211,7 +274,7 @@ def run_performance_analysis():
     performance_analytics = PerformanceAnalytics()
     
     # Calculate performance metrics
-    portfolio_id = 'DEMO_PORTFOLIO_001'
+    portfolio_id = 'PORTFOLIO_001'
     start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     end_date = datetime.now().strftime('%Y-%m-%d')
     
@@ -339,11 +402,22 @@ def main():
     logger.info("=" * 80)
     
     try:
+        # Check and generate sample data
+        if not check_sample_data():
+            logger.error("Failed to prepare sample data. Exiting.")
+            return
+        
         # Run comprehensive analytics
         analysis_results = {}
         
         # Portfolio Analysis
         analysis_results['portfolio_analysis'] = run_portfolio_analysis()
+        
+        # Trading Analysis
+        analysis_results['trading_analysis'] = run_trading_analysis()
+        
+        # Sector Analysis
+        analysis_results['sector_analysis'] = run_sector_analysis()
         
         # Risk Analysis
         analysis_results['risk_analysis'] = run_risk_analysis()
@@ -361,7 +435,14 @@ def main():
         logger.info("=" * 80)
         logger.info("ANALYTICS EXECUTION COMPLETED SUCCESSFULLY")
         logger.info("=" * 80)
-        logger.info("Next Steps:")
+        logger.info("📊 Analysis Summary:")
+        logger.info(f"  • Portfolio: {analysis_results.get('portfolio_analysis', {}).get('total_positions', 0)} positions analyzed")
+        logger.info(f"  • Trading: {analysis_results.get('trading_analysis', {}).get('total_trades', 0)} trades reviewed")
+        logger.info(f"  • Risk: VaR and stress testing completed")
+        logger.info(f"  • Compliance: Monitoring and flagging active")
+        logger.info(f"  • Performance: Attribution and metrics calculated")
+        logger.info("")
+        logger.info("📈 Next Steps:")
         logger.info("1. Review generated charts in reports/ directory")
         logger.info("2. Analyze compliance flags and risk metrics")
         logger.info("3. Share insights with trading and risk teams")
